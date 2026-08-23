@@ -21,8 +21,7 @@
     <path d="M32 14 L-32 78"/>
   </g>
 
-  <text x="190" y="172" fill="#111111" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="800" letter-spacing="-3">Resume</text>
-  <text x="515" y="172" fill="#1d4ed8" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="800" letter-spacing="-3">Agent</text>
+  <text x="190" y="172" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="800"><tspan fill="#111111">Resume</tspan><tspan fill="#1d4ed8">Agent</tspan></text>
   <text x="102" y="236" fill="#111111" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="600">Evidence-grounded resumes for real job applications.</text>
   <text x="102" y="281" fill="#555555" font-family="Arial, Helvetica, sans-serif" font-size="23">Build from what you actually did. Tailor for where you want to go.</text>
 
@@ -36,7 +35,7 @@
 
     <rect x="490" y="356" width="310" height="105" fill="#ffffff" stroke="#111111" stroke-width="2"/>
     <text x="514" y="392" fill="#1d4ed8" font-size="17" font-weight="800" letter-spacing="2">02 / REQUIREMENTS</text>
-    <text x="514" y="428" fill="#111111" font-size="23" font-weight="700">Structured job descriptions</text>
+    <text x="514" y="428" fill="#111111" font-size="21" font-weight="700">Structured job descriptions</text>
 
     <path d="M817 408 H861" stroke="#1d4ed8" stroke-width="4"/>
     <path d="M848 394 L864 408 L848 422" fill="none" stroke="#1d4ed8" stroke-width="4"/>
