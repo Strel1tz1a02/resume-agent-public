@@ -1,0 +1,11 @@
+# 先选择合适的模板，避免缺少复现信息的空白 Issue。
+blank_issues_enabled: false
+
+contact_links:
+  - name: 🔐 私密报告安全漏洞
+    url: https://github.com/Strel1tz1a02/resume-agent-public/security/advisories/new
+    about: 安全漏洞请通过私密报告入口提交，不要创建公开 Issue。
+
+  - name: 📖 阅读项目文档
+    url: https://github.com/Strel1tz1a02/resume-agent-public/blob/main/README.md
+    about: 提交问题前请先查看 README 与安装说明。

@@ -1,0 +1,203 @@
+services:
+  resume-matcher:
+    image: ${RESUME_AGENT_IMAGE:-ghcr.io/strel1tz1a02/resume-agent-public:latest}
+    build: .
+    container_name: resume-matcher
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - resume-data:/app/backend/data
+    #secrets:
+    #  - llm_api_key
+    environment:
+      # domain in reverse proxy
+      - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:-http://localhost:3000}
+      # Logging configuration: DEBUG, INFO, WARNING, ERROR
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      #- LOG_LEVEL_FILE=${LOG_LEVEL_FILE:-}
+      # Debug level for LangChain/provider clients: DEBUG, INFO, WARNING, ERROR
+      - LOG_LLM=${LOG_LLM:-WARNING}
+      #- LOG_LLM_FILE=${LOG_LLM_FILE:-}
+      # LLM Configuration - configure via Settings UI or set env vars for explicit overrides
+      # Supported providers: openai, anthropic, openrouter, gemini, deepseek, ollama
+      # Defaults are defined in apps/backend/app/config.py
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-32768}
+      # Optional Docker Secret file path (same behavior as Postgres-style *_FILE)
+      #- LLM_API_KEY_FILE=${LLM_API_KEY_FILE:-/run/secrets/llm_api_key}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      # For Ollama running on host machine, use host.docker.internal:
+      # - LLM_API_BASE=http://host.docker.internal:11434
+      - LLM_API_BASE=${LLM_API_BASE:-}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - PLAYWRIGHT_MCP_URL=http://playwright-mcp:8931/mcp
+      - PLAYWRIGHT_MCP_EGRESS_SECURED=true
+      - PLAYWRIGHT_MCP_TIMEOUT_SECONDS=${PLAYWRIGHT_MCP_TIMEOUT_SECONDS:-45}
+      # CORS origins (JSON array format). FRONTEND_BASE_URL is auto-included.
+      #- CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+    networks:
+      - default
+      - mcp-private
+    depends_on:
+      playwright-mcp:
+        condition: service_healthy
+    restart: unless-stopped
+
+  memory-worker:
+    image: ${RESUME_AGENT_IMAGE:-ghcr.io/strel1tz1a02/resume-agent-public:latest}
+    build: .
+    working_dir: /app/backend
+    command: ["arq", "app.ai_chat.memory.worker.WorkerSettings"]
+    volumes:
+      - resume-data:/app/backend/data
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_LLM=${LOG_LLM:-WARNING}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-32768}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_API_BASE=${LLM_API_BASE:-}
+      - REDIS_URL=redis://redis:6379/0
+      - AI_CHAT_MEMORY_QUEUE_NAME=ai-chat:memory
+    depends_on:
+      redis:
+        condition: service_healthy
+      resume-matcher:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "arq", "--check", "app.ai_chat.memory.worker.WorkerSettings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  resume-index-worker:
+    image: ${RESUME_AGENT_IMAGE:-ghcr.io/strel1tz1a02/resume-agent-public:latest}
+    build: .
+    working_dir: /app/backend
+    command: ["arq", "app.resume_generation.index_worker.WorkerSettings"]
+    volumes:
+      - resume-data:/app/backend/data
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      resume-matcher:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "arq", "--check", "app.resume_generation.index_worker.WorkerSettings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.2
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  # The browser has no direct route to the Internet. All HTTP(S) traffic must
+  # pass through the egress proxy, which rejects loopback, private, link-local, multicast,
+  # and reserved destinations before connecting.
+  playwright-mcp:
+    image: mcr.microsoft.com/playwright/mcp:v0.0.79
+    command:
+      - --port
+      - "8931"
+      - --host
+      - 0.0.0.0
+      - --allowed-hosts
+      - 127.0.0.1,localhost,playwright-mcp
+      - --proxy-server
+      - http://mcp-egress-proxy:3128
+      - --isolated
+    networks:
+      - mcp-private
+    depends_on:
+      mcp-egress-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('net').connect(8931,'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    shm_size: 1gb
+    restart: unless-stopped
+
+  playwright-mcp-gateway:
+    image: mcr.microsoft.com/playwright/mcp:v0.0.79
+    entrypoint: ["node"]
+    command: ["/gateway/mcp-http-gateway.mjs"]
+    volumes:
+      - ./docker/mcp-http-gateway.mjs:/gateway/mcp-http-gateway.mjs:ro
+    ports:
+      - "127.0.0.1:${PLAYWRIGHT_MCP_PORT:-8931}:8931"
+    networks:
+      - default
+      - mcp-private
+    depends_on:
+      playwright-mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('net').connect(8931,'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mcp-egress-proxy:
+    image: mcr.microsoft.com/playwright/mcp:v0.0.79
+    entrypoint: ["node"]
+    command: ["/proxy/mcp-egress-proxy.mjs"]
+    volumes:
+      - ./docker/mcp-egress-proxy.mjs:/proxy/mcp-egress-proxy.mjs:ro
+    networks:
+      - default
+      - mcp-private
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('net').connect(3128,'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+#secrets:
+#  llm_api_key:
+#    file: ./secrets/llm_api_key
+
+volumes:
+  resume-data:
+    driver: local
+  redis-data:
+    driver: local
+  qdrant-data:
+    driver: local
+
+networks:
+  mcp-private:
+    internal: true
